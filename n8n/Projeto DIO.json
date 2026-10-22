@@ -1,0 +1,279 @@
+{
+  "name": "My workflow 2",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "Clientes",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        -240
+      ],
+      "id": "68b2b40e-7095-473f-901a-8a8dc9e94ef9",
+      "name": "Webhook",
+      "webhookId": "6ce290b9-a227-4c68-982c-e7fbdf5ba7d0"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{$json}}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1904,
+        -240
+      ],
+      "id": "285699bf-561e-4b76-bd5b-faf29b4cd112",
+      "name": "Respond to Webhook"
+    },
+    {
+      "parameters": {
+        "url": "https://digitalinnovationone.github.io/dio-lab-assistente-investimentos-rpa-n8n/data.csv",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        224,
+        -176
+      ],
+      "id": "8161d125-9df1-4aec-a1be-8b1992341321",
+      "name": "HTTP Request"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\n\n// Localiza o conteúdo CSV nas propriedades mais comuns\nconst csvRaw =\n  input.body ??\n  input.csv ??\n  input.data ??\n  input.text ??\n  input.texto ??\n  input.content;\n\nlet investimentos;\n\n// Se já vier como lista de investimentos\nif (Array.isArray(input.investimentos)) {\n  investimentos = input.investimentos.map(obj => ({\n    ...obj,\n    minimo: Number(obj.minimo)\n  }));\n} else {\n  // Se vier como texto CSV\n  const text = typeof csvRaw === \"string\"\n    ? csvRaw\n    : null;\n\n  if (!text || !text.trim()) {\n    throw new Error(\n      \"CSV não encontrado. Verifique o JSON de entrada e identifique a propriedade que contém o texto.\"\n    );\n  }\n\n  const lines = text\n    .split(/\\r?\\n/)\n    .map(l => l.trim())\n    .filter(Boolean);\n\n  const headers = lines[0].split(\",\").map(h => h.trim());\n\n  investimentos = lines.slice(1).map(line => {\n    const cols = line.split(\",\").map(c => c.trim());\n    const obj = {};\n\n    headers.forEach((h, i) => {\n      obj[h] = cols[i] ?? \"\";\n    });\n\n    obj.minimo = Number(obj.minimo);\n\n    return obj;\n  });\n}\n\nreturn [{ json: { investimentos } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        -176
+      ],
+      "id": "b3935ef6-cc32-4487-a1c6-ed7e7b13a54d",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        672,
+        -240
+      ],
+      "id": "310e3277-3260-4849-8cad-1e356d6f41e1",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Investimentos: vêm do Code 1\nconst investimentos = $input.first().json.investimentos;\n\n// Clientes: vêm do nó Webhook\nconst webhook = $('Webhook').first().json;\nconst clientes = webhook.body?.clientes ?? webhook.clientes;\n\nif (!Array.isArray(clientes)) {\n  throw new Error(\"Lista de clientes não encontrada no nó Webhook (body.clientes).\");\n}\n\n// \"R$ 12.500,00\" -> 12500\nconst parseSaldo = (texto) =>\n  parseFloat(String(texto).replace('R$', '').trim().replace(/\\./g, '').replace(',', '.'));\n\nconst formatarBRL = (valor) =>\n  valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });\n\nreturn clientes.map((cliente) => {\n  const saldo = parseSaldo(cliente.saldo);\n\n  const produtos = investimentos.filter(\n    (i) => i.perfil === cliente.perfil && i.minimo <= saldo\n  );\n\n  const detalhes = produtos.length\n    ? produtos\n        .map((p) => `${p.produto} (rentabilidade: ${p.rentabilidade}; aplicação mínima: ${formatarBRL(p.minimo)})`)\n        .join(' | ')\n    : 'nenhum produto disponível para o saldo atual';\n\n  return {\n    json: {\n      nome: cliente.nome,\n      email: cliente.email,\n      perfil: cliente.perfil,\n      saldo,\n      produtos: produtos.map((p) => p.produto),\n      detalhes,\n    },\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        896,
+        -240
+      ],
+      "id": "3d2f77fa-9c2f-499b-9b2d-75ef073a0aac",
+      "name": "Code in JavaScript1"
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "claude-haiku-5-5",
+          "mode": "list",
+          "cachedResultName": "claude-haiku-5-5"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=Escreva o e-mail para este cliente:\n\nNome: {{ $json.nome }}\nE-mail: {{ $json.email }}\nPerfil de investidor: {{ $json.perfil }}\nSaldo atual: {{ $json.saldo.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) }}\nProdutos disponíveis: {{ $json.detalhes }}"
+            }
+          ]
+        },
+        "options": {
+          "system": "Você é um assessor de investimentos de um banco brasileiro escrevendo e-mails para clientes.  Regras: - Português do Brasil, tom cordial e profissional. - Use apenas os produtos fornecidos. Nunca invente produtos, taxas ou valores. - Para cada produto, informe sempre a rentabilidade e a aplicação mínima. - Não prometa rentabilidade nem garanta ganhos. - Para perfil Arrojado, inclua um aviso curto de que renda variável pode gerar perdas. - Se não houver produtos disponíveis, explique com gentileza que o saldo ainda não atinge o mínimo e incentive a continuar investindo aos poucos. - Máximo de 120 palavras. - Inclua apenas uma frase de convite para dúvidas, sem repetir. - Assine sempre como \"Equipe de Investimentos\". Nunca use colchetes, placeholders ou observações para o remetente. - Responda SOMENTE com JSON válido, sem markdown e sem texto extra, neste formato: {\"email\": \"...\", \"assunto\": \"...\", \"corpo\": \"...\"} - O campo \"email\" deve repetir exatamente o e-mail do cliente fornecido. - No campo \"corpo\", use <p> e <ul><li> em HTML simples.",
+          "maxTokens": 4000
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.anthropic",
+      "typeVersion": 1,
+      "position": [
+        1120,
+        -240
+      ],
+      "id": "43702ccb-407c-4562-9c25-a1cd519046cc",
+      "name": "Message a model",
+      "credentials": {
+        "anthropicApi": {
+          "id": "9pjep35DTVytw7cb",
+          "name": "Anthropic account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all().map((item) => {\n  const bruto = item.json.content?.find((c) => c.type === 'text')?.text\n    ?? item.json.text\n    ?? item.json.output;\n\n  const limpo = (bruto ?? '').replace(/```json|```/g, '').trim();\n\n  try {\n    const { email, assunto, corpo } = JSON.parse(limpo);\n    return { json: { email, assunto, corpo, ok: true } };\n  } catch (e) {\n    return { json: { ok: false, erro: 'JSON incompleto', bruto: limpo } };\n  }\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1472,
+        -240
+      ],
+      "id": "0e92172c-7494-4c3c-9118-8589aedb6862",
+      "name": "Code in JavaScript2"
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $json.email }}",
+        "subject": "={{ $json.assunto }}",
+        "message": "={{ $json.corpo }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1680,
+        -240
+      ],
+      "id": "e0f4c79c-83dd-4b4c-8032-81faa718c26f",
+      "name": "Send a message",
+      "webhookId": "6c51aa3b-6079-48f3-a164-daf6f12e0e8a",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "UpiR8FQ2kxntcbwS",
+          "name": "Gmail account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond to Webhook": {
+      "main": [
+        []
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript1": {
+      "main": [
+        [
+          {
+            "node": "Message a model",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Message a model": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript2": {
+      "main": [
+        [
+          {
+            "node": "Send a message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send a message": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "ba4aff0d-053d-4831-9e8e-c5783a83d29e",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "faa6fe3f411f7e07b252f6713e865029eb0f46339a10ae67b5ec5a9e263968d4"
+  },
+  "id": "VU17g4HMe2zCkk4v",
+  "tags": []
+}
